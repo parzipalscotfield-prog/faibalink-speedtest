@@ -1,86 +1,77 @@
 const startBtn = document.getElementById("startBtn");
+
 const speedEl = document.getElementById("speed");
 const downloadEl = document.getElementById("download");
 const uploadEl = document.getElementById("upload");
 const pingEl = document.getElementById("ping");
+const latencyEl = document.getElementById("latency");
+const jitterEl = document.getElementById("jitter");
+
 const phaseEl = document.getElementById("phase");
 const statusEl = document.getElementById("status");
 
-const TEST_SIZE = 5 * 1024 * 1024; // 5 MB
-const TEST_FILE = "/speed-test.bin";
+const UPLOAD_SIZE = 512 * 1024; // 512 KB
+const DOWNLOAD_URL = "/speed-test.bin";
 
-function setPhase(text) {
+function phase(text) {
   phaseEl.textContent = text;
 }
 
-function setStatus(text) {
+function status(text) {
   statusEl.textContent = text;
 }
 
-function formatSpeed(mbps) {
-  return mbps.toFixed(1);
+function speedMbps(bytes, milliseconds) {
+  const bits = bytes * 8;
+  const seconds = milliseconds / 1000;
+
+  return bits / seconds / 1000000;
 }
 
-async function measurePing(samples = 5) {
-  const results = [];
+async function measureLatency(samples = 5) {
+  const times = [];
 
   for (let i = 0; i < samples; i++) {
     const start = performance.now();
 
-    try {
-      await fetch(`/ping?t=${Date.now()}-${Math.random()}`, {
-        cache: "no-store",
-        method: "GET"
-      });
+    await fetch(`/ping?t=${Date.now()}-${Math.random()}`, {
+      method: "GET",
+      cache: "no-store"
+    });
 
-      results.push(performance.now() - start);
-    } catch (error) {
-      console.error("Ping error:", error);
-    }
+    const time = performance.now() - start;
+    times.push(time);
   }
 
-  if (!results.length) return null;
+  const average =
+    times.reduce((sum, value) => sum + value, 0) / times.length;
 
-  return results.reduce((a, b) => a + b, 0) / results.length;
+  return {
+    average,
+    samples: times
+  };
 }
 
-async function measureJitter(samples = 8) {
-  const results = [];
+function calculateJitter(times) {
+  if (times.length < 2) return 0;
 
-  for (let i = 0; i < samples; i++) {
-    const start = performance.now();
+  let total = 0;
 
-    try {
-      await fetch(`/ping?t=${Date.now()}-${Math.random()}`, {
-        cache: "no-store",
-        method: "GET"
-      });
-
-      results.push(performance.now() - start);
-    } catch (error) {
-      console.error("Jitter error:", error);
-    }
+  for (let i = 1; i < times.length; i++) {
+    total += Math.abs(times[i] - times[i - 1]);
   }
 
-  if (results.length < 2) return null;
-
-  let totalDifference = 0;
-
-  for (let i = 1; i < results.length; i++) {
-    totalDifference += Math.abs(results[i] - results[i - 1]);
-  }
-
-  return totalDifference / (results.length - 1);
+  return total / (times.length - 1);
 }
 
 async function measureDownload() {
-  setPhase("DOWNLOAD");
-  setStatus("Testing download speed...");
+  phase("DOWNLOAD");
+  status("Testing download speed...");
 
   const start = performance.now();
 
   const response = await fetch(
-    `${TEST_FILE}?cache=${Date.now()}-${Math.random()}`,
+    `${DOWNLOAD_URL}?t=${Date.now()}-${Math.random()}`,
     {
       cache: "no-store"
     }
@@ -92,38 +83,35 @@ async function measureDownload() {
 
   const data = await response.arrayBuffer();
 
-  const duration = (performance.now() - start) / 1000;
+  const elapsed = performance.now() - start;
 
-  const megabits = (data.byteLength * 8) / 1000000;
-  const mbps = megabits / duration;
-
-  return mbps;
+  return speedMbps(data.byteLength, elapsed);
 }
 
 async function measureUpload() {
-  setPhase("UPLOAD");
-  setStatus("Testing upload speed...");
+  phase("UPLOAD");
+  status("Testing upload speed...");
 
-  const data = new Uint8Array(TEST_SIZE);
+  const data = new Uint8Array(UPLOAD_SIZE);
 
   const start = performance.now();
 
-  const response = await fetch(`/upload?t=${Date.now()}`, {
-    method: "POST",
-    body: data,
-    cache: "no-store"
-  });
+  const response = await fetch(
+    `/upload?t=${Date.now()}-${Math.random()}`,
+    {
+      method: "POST",
+      body: data,
+      cache: "no-store"
+    }
+  );
 
   if (!response.ok) {
     throw new Error("Upload test failed");
   }
 
-  const duration = (performance.now() - start) / 1000;
+  const elapsed = performance.now() - start;
 
-  const megabits = (data.byteLength * 8) / 1000000;
-  const mbps = megabits / duration;
-
-  return mbps;
+  return speedMbps(data.byteLength, elapsed);
 }
 
 async function runTest() {
@@ -133,51 +121,46 @@ async function runTest() {
   downloadEl.textContent = "—";
   uploadEl.textContent = "—";
   pingEl.textContent = "—";
+  latencyEl.textContent = "—";
+  jitterEl.textContent = "—";
 
   try {
-    // PING
-    setPhase("PING");
-    setStatus("Checking connection latency...");
+    // LATENCY + PING
+    phase("PING");
+    status("Measuring latency...");
 
-    const ping = await measurePing();
+    const latencyResult = await measureLatency(5);
 
-    if (ping !== null) {
-      pingEl.textContent = ping.toFixed(0);
-    }
+    const latency = latencyResult.average;
+    const jitter = calculateJitter(latencyResult.samples);
+
+    pingEl.textContent = Math.round(latency);
+    latencyEl.textContent = latency.toFixed(1);
+    jitterEl.textContent = jitter.toFixed(1);
 
     // DOWNLOAD
     const download = await measureDownload();
 
-    downloadEl.textContent = formatSpeed(download);
-    speedEl.textContent = formatSpeed(download);
+    downloadEl.textContent = download.toFixed(1);
+    speedEl.textContent = download.toFixed(1);
 
     // UPLOAD
     const upload = await measureUpload();
 
-    uploadEl.textContent = formatSpeed(upload);
+    uploadEl.textContent = upload.toFixed(1);
 
-    // JITTER
-    setPhase("JITTER");
-    setStatus("Measuring connection stability...");
+    // COMPLETE
+    phase("COMPLETE");
 
-    const jitter = await measureJitter();
-
-    // Show jitter temporarily in status
-    if (jitter !== null) {
-      setStatus(
-        `Test complete • Ping ${ping?.toFixed(0) ?? "—"} ms • Jitter ${jitter.toFixed(1)} ms`
-      );
-    } else {
-      setStatus("Test complete.");
-    }
-
-    setPhase("COMPLETE");
+    status(
+      `Test complete • ${latency.toFixed(1)} ms latency • ${jitter.toFixed(1)} ms jitter`
+    );
 
   } catch (error) {
     console.error(error);
 
-    setPhase("ERROR");
-    setStatus("Speed test failed. Please try again.");
+    phase("ERROR");
+    status("Test failed. Please try again.");
   }
 
   startBtn.disabled = false;
