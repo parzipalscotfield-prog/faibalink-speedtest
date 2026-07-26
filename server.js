@@ -8,66 +8,56 @@ const PORT = process.env.PORT || 10000;
 // Allow large upload requests
 app.use(express.raw({
   type: "*/*",
-  limit: "100mb"
+  limit: "20mb"
 }));
 
-// Serve website files
+// Serve website
 app.use(express.static(path.join(__dirname, "public")));
 
-// -------------------------
-// PING
-// -------------------------
-
-app.get("/api/ping", (req, res) => {
+// Fast ping endpoint
+app.get("/ping", (req, res) => {
   res.set({
     "Cache-Control": "no-store, no-cache, must-revalidate",
-    "Pragma": "no-cache"
+    "Pragma": "no-cache",
+    "Expires": "0"
   });
 
-  res.status(204).end();
+  res.status(200).send("OK");
 });
 
-// -------------------------
-// DOWNLOAD
-// -------------------------
+// Upload test endpoint
+app.post("/upload", (req, res) => {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  });
 
-app.get("/api/download", (req, res) => {
+  res.status(200).send("OK");
+});
 
-  const requestedSize = parseInt(req.query.size, 10) || 25000000;
-
-  // Protect server from unnecessarily huge requests
-  const size = Math.min(requestedSize, 50000000);
-
-  const chunkSize = 1024 * 1024;
+// Generate download data
+app.get("/speed-test.bin", (req, res) => {
+  const size = 5 * 1024 * 1024; // 5 MB
 
   res.set({
     "Content-Type": "application/octet-stream",
     "Content-Length": size,
     "Cache-Control": "no-store, no-cache, must-revalidate",
     "Pragma": "no-cache",
-    "X-Content-Type-Options": "nosniff"
+    "Expires": "0"
   });
 
-  const chunk = Buffer.alloc(chunkSize);
+  const chunk = Buffer.alloc(64 * 1024);
 
-  let sent = 0;
+  let remaining = size;
 
   function sendChunk() {
+    while (remaining > 0) {
+      const currentSize = Math.min(chunk.length, remaining);
+      remaining -= currentSize;
 
-    while (sent < size) {
-
-      const remaining = size - sent;
-      const currentSize = Math.min(chunkSize, remaining);
-
-      const ok = res.write(
-        currentSize === chunkSize
-          ? chunk
-          : chunk.subarray(0, currentSize)
-      );
-
-      sent += currentSize;
-
-      if (!ok) {
+      if (!res.write(chunk.subarray(0, currentSize))) {
         res.once("drain", sendChunk);
         return;
       }
@@ -79,24 +69,7 @@ app.get("/api/download", (req, res) => {
   sendChunk();
 });
 
-// -------------------------
-// UPLOAD
-// -------------------------
-
-app.post("/api/upload", (req, res) => {
-
-  res.set({
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "Pragma": "no-cache"
-  });
-
-  res.status(204).end();
-});
-
-// -------------------------
-// START SERVER
-// -------------------------
-
+// Start server
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`FAIBALINK Speed Test running on port ${PORT}`);
 });
