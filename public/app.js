@@ -1,185 +1,230 @@
-const speed = document.getElementById("speed");
-const phase = document.getElementById("phase");
-const status = document.getElementById("status");
 
+const speedEl = document.getElementById("speed");
 const downloadEl = document.getElementById("download");
 const uploadEl = document.getElementById("upload");
 const pingEl = document.getElementById("ping");
-
+const phaseEl = document.getElementById("phase");
+const statusEl = document.getElementById("status");
 const startBtn = document.getElementById("startBtn");
 
+let running = false;
 
-function showSpeed(value, stage) {
-
-  speed.textContent = value.toFixed(1);
-  phase.textContent = stage;
-
+function setSpeed(value) {
+  speedEl.textContent = Number(value).toFixed(1);
 }
 
+function setPhase(text) {
+  phaseEl.textContent = text;
+}
 
-async function pingTest() {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-  const results = [];
+async function measurePing() {
+  const samples = [];
 
   for (let i = 0; i < 5; i++) {
-
     const start = performance.now();
 
-    await fetch(
-      "/ping?test=" + Date.now() + "_" + i,
-      {
+    try {
+      await fetch(`/api/ping?t=${Date.now()}-${i}`, {
         cache: "no-store"
-      }
-    );
+      });
 
-    const time = performance.now() - start;
-
-    results.push(time);
-
+      samples.push(performance.now() - start);
+    } catch (error) {
+      console.error("Ping error:", error);
+    }
   }
 
-  results.sort((a, b) => a - b);
+  if (!samples.length) {
+    throw new Error("Ping test failed");
+  }
 
-  return results[2];
+  samples.sort((a, b) => a - b);
 
+  // Ignore the slowest sample.
+  const useful = samples.slice(0, Math.max(1, samples.length - 1));
+
+  const average =
+    useful.reduce((sum, value) => sum + value, 0) / useful.length;
+
+  return average;
 }
 
-
-async function downloadTest() {
-
-  const size = 12 * 1024 * 1024;
+async function measureDownload() {
+  const connections = 4;
+  const results = [];
 
   const start = performance.now();
 
-  const response = await fetch(
-    "/download?bytes=" + size + "&t=" + Date.now(),
-    {
-      cache: "no-store"
+  async function downloadWorker(worker) {
+    let bytes = 0;
+
+    try {
+      const response = await fetch(
+        `/api/download?size=25000000&worker=${worker}&t=${Date.now()}-${worker}`,
+        {
+          cache: "no-store"
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Download request failed");
+      }
+
+      const reader = response.body.getReader();
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        bytes += value.byteLength;
+
+        const elapsed = (performance.now() - start) / 1000;
+
+        if (elapsed > 0) {
+          const mbps = (bytes * 8) / elapsed / 1000000;
+          setSpeed(mbps);
+        }
+      }
+    } catch (error) {
+      console.error(`Download worker ${worker}:`, error);
     }
-  );
 
-  const reader = response.body.getReader();
-
-  let received = 0;
-
-  while (true) {
-
-    const result = await reader.read();
-
-    if (result.done) break;
-
-    received += result.value.byteLength;
-
-    const seconds =
-      (performance.now() - start) / 1000;
-
-    const mbps =
-      (received * 8 / seconds) / 1000000;
-
-    showSpeed(mbps, "DOWNLOAD");
-
+    return bytes;
   }
 
-  const seconds =
-    (performance.now() - start) / 1000;
+  for (let i = 0; i < connections; i++) {
+    results.push(downloadWorker(i));
+  }
 
-  return (received * 8 / seconds) / 1000000;
+  const bytes = (await Promise.all(results)).reduce(
+    (sum, value) => sum + value,
+    0
+  );
 
+  const seconds = (performance.now() - start) / 1000;
+
+  if (!bytes || !seconds) {
+    throw new Error("Download test failed");
+  }
+
+  return (bytes * 8) / seconds / 1000000;
 }
 
-
-async function uploadTest() {
-
-  const size = 6 * 1024 * 1024;
+async function measureUpload() {
+  const connections = 3;
+  const size = 12000000;
 
   const data = new Uint8Array(size);
 
+  // Fill with deterministic data.
+  for (let i = 0; i < data.length; i += 4096) {
+    data[i] = i % 255;
+  }
+
   const start = performance.now();
 
-  await fetch(
-    "/upload?t=" + Date.now(),
-    {
-      method: "POST",
-      body: data,
-      headers: {
-        "Content-Type": "application/octet-stream"
-      },
-      cache: "no-store"
+  async function uploadWorker(worker) {
+    try {
+      await fetch(
+        `/api/upload?worker=${worker}&t=${Date.now()}-${worker}`,
+        {
+          method: "POST",
+          body: data,
+          cache: "no-store"
+        }
+      );
+    } catch (error) {
+      console.error(`Upload worker ${worker}:`, error);
     }
-  );
+  }
 
-  const seconds =
-    (performance.now() - start) / 1000;
+  const jobs = [];
 
-  return (size * 8 / seconds) / 1000000;
+  for (let i = 0; i < connections; i++) {
+    jobs.push(uploadWorker(i));
+  }
 
+  await Promise.all(jobs);
+
+  const seconds = (performance.now() - start) / 1000;
+  const totalBytes = size * connections;
+
+  if (!seconds) {
+    throw new Error("Upload test failed");
+  }
+
+  return (totalBytes * 8) / seconds / 1000000;
 }
 
+async function runTest() {
+  if (running) return;
 
-startBtn.addEventListener("click", async () => {
-
+  running = true;
   startBtn.disabled = true;
 
   downloadEl.textContent = "—";
   uploadEl.textContent = "—";
   pingEl.textContent = "—";
 
-  status.textContent =
-    "Testing your FAIBALINK connection...";
-
-
   try {
-
     // PING
+    setPhase("PING");
+    statusEl.textContent = "Checking connection latency...";
 
-    showSpeed(0, "PING");
+    const ping = await measurePing();
 
-    const ping = await pingTest();
+    pingEl.textContent = Math.round(ping);
 
-    pingEl.textContent =
-      ping.toFixed(0);
-
+    await sleep(500);
 
     // DOWNLOAD
+    setPhase("DOWNLOAD");
+    statusEl.textContent = "Measuring download speed...";
 
-    const download =
-      await downloadTest();
+    const download = await measureDownload();
 
-    downloadEl.textContent =
-      download.toFixed(1);
+    downloadEl.textContent = download.toFixed(1);
+    setSpeed(download);
 
+    await sleep(700);
 
     // UPLOAD
+    setPhase("UPLOAD");
+    statusEl.textContent = "Measuring upload speed...";
 
-    showSpeed(0, "UPLOAD");
+    const upload = await measureUpload();
 
-    const upload =
-      await uploadTest();
+    uploadEl.textContent = upload.toFixed(1);
+    setSpeed(upload);
 
-    uploadEl.textContent =
-      upload.toFixed(1);
+    await sleep(500);
 
+    // FINISHED
+    setPhase("COMPLETE");
+    statusEl.textContent =
+      "Speed test complete. Thanks for using FAIBALINK.";
 
-    // COMPLETE
-
-    showSpeed(download, "DONE");
-
-    status.textContent =
-      "Test complete!";
-
+    // Keep the download result in the main gauge.
+    setSpeed(download);
 
   } catch (error) {
-
     console.error(error);
 
-    phase.textContent = "ERROR";
+    setPhase("ERROR");
+    statusEl.textContent =
+      "Unable to complete the speed test. Please try again.";
 
-    status.textContent =
-      "Speed test failed. Please try again.";
+    setSpeed(0);
 
+  } finally {
+    startBtn.disabled = false;
+    running = false;
   }
+}
 
-
-  startBtn.disabled = false;
-
-});
+startBtn.addEventListener("click", runTest);
