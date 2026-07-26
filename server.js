@@ -2,19 +2,9 @@ const express = require("express");
 const path = require("path");
 
 const app = express();
-
 const PORT = process.env.PORT || 10000;
 
-// ------------------------------------
-// WEBSITE
-// ------------------------------------
-
 app.use(express.static(path.join(__dirname, "public")));
-
-
-// ------------------------------------
-// NO-CACHE HEADERS
-// ------------------------------------
 
 function noCache(res) {
   res.set({
@@ -39,7 +29,7 @@ app.get("/ping", (req, res) => {
 
 
 // ------------------------------------
-// UPLOAD TEST
+// UPLOAD
 // ------------------------------------
 
 app.post(
@@ -62,18 +52,19 @@ app.post(
 
 
 // ------------------------------------
-// DOWNLOAD TEST
+// DOWNLOAD
 // ------------------------------------
-
-// 10 MB test file
-const DOWNLOAD_SIZE = 10 * 1024 * 1024;
-
-// Reusable 64 KB chunk
-const chunk = Buffer.alloc(64 * 1024);
 
 app.get("/speed-test.bin", (req, res) => {
 
   noCache(res);
+
+  let sizeMB = Number(req.query.size) || 10;
+
+  // Safety limits
+  sizeMB = Math.max(1, Math.min(sizeMB, 50));
+
+  const DOWNLOAD_SIZE = Math.floor(sizeMB * 1024 * 1024);
 
   res.set({
     "Content-Type": "application/octet-stream",
@@ -81,6 +72,8 @@ app.get("/speed-test.bin", (req, res) => {
     "Content-Encoding": "identity",
     "X-Content-Type-Options": "nosniff"
   });
+
+  const chunk = Buffer.alloc(64 * 1024);
 
   let remaining = DOWNLOAD_SIZE;
 
@@ -95,11 +88,7 @@ app.get("/speed-test.bin", (req, res) => {
 
       remaining -= amount;
 
-      const canContinue = res.write(
-        chunk.subarray(0, amount)
-      );
-
-      if (!canContinue) {
+      if (!res.write(chunk.subarray(0, amount))) {
         res.once("drain", sendChunk);
         return;
       }
@@ -113,7 +102,7 @@ app.get("/speed-test.bin", (req, res) => {
 
 
 // ------------------------------------
-// START SERVER
+// START
 // ------------------------------------
 
 app.listen(PORT, "0.0.0.0", () => {
