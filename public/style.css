@@ -2,118 +2,175 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: Arial, sans-serif;
-  background: #080b10;
-  color: white;
+  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(21, 151, 255, 0.12), transparent 35%),
+    #05080c;
+  color: #ffffff;
   display: flex;
   justify-content: center;
 }
 
 .app {
-  width: min(760px, 100%);
-  padding: 28px 20px 30px;
+  width: min(820px, 100%);
+  padding: 28px 20px 35px;
 }
+
+/* HEADER */
 
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
 }
 
 .brand {
-  font-weight: 900;
-  font-size: 25px;
+  display: flex;
+  align-items: center;
 }
 
-.brand span {
-  color: #1597ff;
-}
-
-.dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #1597ff;
-  margin-right: 5px;
+.brand-logo {
+  width: 165px;
+  height: auto;
+  max-height: 65px;
+  object-fit: contain;
+  display: block;
 }
 
 .badge {
-  font-size: 11px;
-  border: 1px solid #27313e;
+  font-size: 10px;
+  border: 1px solid #263342;
   border-radius: 30px;
-  padding: 7px 11px;
-  color: #9ba9b8;
-  letter-spacing: 1px;
+  padding: 8px 13px;
+  color: #9da9b6;
+  letter-spacing: 1.5px;
+  font-weight: 800;
+  background: rgba(10, 15, 21, 0.7);
 }
+
+/* HERO */
 
 .hero {
   text-align: center;
-  padding: 48px 0 28px;
+  padding: 55px 0 30px;
 }
 
 .eyebrow {
   color: #1597ff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 2px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  margin: 0 0 12px;
 }
 
 .hero h1 {
-  font-size: 42px;
-  margin: 10px 0;
+  font-size: 44px;
+  line-height: 1.1;
+  margin: 0 0 13px;
+  font-weight: 900;
+  letter-spacing: -1px;
 }
 
 .sub {
-  color: #8995a3;
+  color: #8996a4;
   line-height: 1.6;
+  margin: 0 auto;
+  max-width: 500px;
+  font-size: 14px;
 }
 
+/* TEST CARD */
+
 .test-card {
-  background: #10151c;
-  border: 1px solid #202a35;
-  border-radius: 28px;
-  padding: 34px;
-  box-shadow: 0 20px 70px rgba(0,0,0,.35);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(18, 25, 34, 0.98),
+      rgba(8, 12, 17, 0.98)
+    );
+  border: 1px solid #202d3a;
+  border-radius: 30px;
+  padding: 38px;
+  box-shadow:
+    0 25px 80px rgba(0, 0, 0, 0.45),
+    0 0 60px rgba(21, 151, 255, 0.04);
 }
+
+/* GAUGE */
 
 .gauge {
   display: flex;
   justify-content: center;
-  margin: 5px 0 28px;
+  margin: 3px 0 34px;
 }
 
 .gauge-ring {
-  width: 245px;
-  height: 245px;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
-  border: 12px solid #1b2632;
-  outline: 1px solid #2a3949;
+  border: 12px solid #17222d;
+  outline: 1px solid #2a3b4b;
+
+  background:
+    radial-gradient(
+      circle,
+      #0c141c 0%,
+      #080d13 65%,
+      #060a0f 100%
+    );
+
+  box-shadow:
+    inset 0 0 35px rgba(0, 0, 0, 0.7),
+    0 0 35px rgba(21, 151, 255, 0.05);
+
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+
+  position: relative;
+}
+
+.gauge-ring::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 2px solid rgba(21, 151, 255, 0.18);
+  pointer-events: none;
 }
 
 .speed {
-  font-size: 54px;
-  font-weight: 800;
+  font-size: 58px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  line-height: 1;
 }
 
 .unit {
-  color: #9ca8b4;
+  color: #8e9aa7;
+  font-size: 13px;
+  margin-top: 8px;
+  font-weight: 700;
 }
 
 .phase {
   font-size: 10px;
-  letter-spacing: 2px;
+  letter-spacing: 2.5px;
   color: #1597ff;
-  font-weight: 800;
-  margin-top: 13px;
+  font-weight: 900;
+  margin-top: 15px;
 }
+
+/* METRICS */
 
 .metrics {
   display: grid;
@@ -123,84 +180,152 @@ header {
 }
 
 .metric {
-  background: #0b1016;
-  border: 1px solid #1d2732;
-  border-radius: 16px;
-  padding: 17px;
+  background: rgba(5, 9, 13, 0.8);
+  border: 1px solid #1d2a36;
+  border-radius: 17px;
+  padding: 19px 10px;
   text-align: center;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.metric:hover {
+  border-color: #1597ff;
+  transform: translateY(-2px);
 }
 
 .metric span {
   display: block;
-  color: #758290;
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  font-weight: 800;
+  color: #73808e;
+  font-size: 9px;
+  letter-spacing: 1.7px;
+  font-weight: 900;
 }
 
 .metric strong {
-  font-size: 25px;
+  font-size: 26px;
   display: inline-block;
-  margin-top: 7px;
+  margin-top: 8px;
+  font-weight: 900;
 }
 
 .metric small {
-  color: #74808d;
+  color: #687583;
+  font-size: 10px;
 }
+
+/* BUTTON */
 
 button {
   width: 100%;
   border: 0;
-  border-radius: 14px;
-  padding: 17px;
+  border-radius: 15px;
+  padding: 18px;
   background: #1597ff;
-  color: white;
+  color: #ffffff;
   font-weight: 900;
-  letter-spacing: 1px;
-  font-size: 14px;
+  letter-spacing: 1.5px;
+  font-size: 13px;
   cursor: pointer;
+
+  box-shadow:
+    0 8px 25px rgba(21, 151, 255, 0.22);
+
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 button:hover {
   filter: brightness(1.08);
+  transform: translateY(-1px);
+
+  box-shadow:
+    0 11px 32px rgba(21, 151, 255, 0.3);
+}
+
+button:active {
+  transform: translateY(1px);
 }
 
 button:disabled {
-  opacity: .55;
+  opacity: 0.55;
   cursor: not-allowed;
+  transform: none;
 }
+
+/* STATUS */
 
 .status {
   text-align: center;
-  color: #7f8b98;
-  font-size: 13px;
-  margin-top: 16px;
+  color: #7d8996;
+  font-size: 12px;
+  margin: 17px 0 0;
+  line-height: 1.5;
 }
+
+/* FOOTER */
 
 footer {
   text-align: center;
   color: #596572;
-  font-size: 12px;
-  padding: 24px;
+  font-size: 11px;
+  line-height: 1.8;
+  padding: 28px 10px 10px;
 }
 
+footer strong {
+  color: #1597ff;
+  letter-spacing: 1.5px;
+}
+
+/* MOBILE */
+
 @media (max-width: 560px) {
+
+  .app {
+    padding: 20px 14px 25px;
+  }
+
+  header {
+    align-items: center;
+  }
+
+  .brand-logo {
+    width: 135px;
+    max-height: 55px;
+  }
+
+  .badge {
+    font-size: 8px;
+    padding: 7px 9px;
+    letter-spacing: 1px;
+  }
+
+  .hero {
+    padding: 43px 5px 25px;
+  }
 
   .hero h1 {
     font-size: 34px;
   }
 
+  .sub {
+    font-size: 13px;
+  }
+
   .test-card {
-    padding: 23px 16px;
+    padding: 25px 15px;
+    border-radius: 24px;
   }
 
   .gauge-ring {
-    width: 215px;
-    height: 215px;
+    width: 220px;
+    height: 220px;
   }
 
   .speed {
-    font-size: 47px;
+    font-size: 48px;
   }
 
   .metrics {
@@ -208,10 +333,20 @@ footer {
   }
 
   .metric {
-    padding: 14px 5px;
+    padding: 15px 5px;
+    border-radius: 14px;
   }
 
   .metric strong {
     font-size: 21px;
+  }
+
+  .metric span {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+
+  button {
+    padding: 17px;
   }
 }
