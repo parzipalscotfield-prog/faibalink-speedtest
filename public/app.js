@@ -11,19 +11,22 @@ const phaseEl = document.getElementById("phase");
 const statusEl = document.getElementById("status");
 
 
-// ========================================
-// TEST SETTINGS
-// ========================================
+// ------------------------------------
+// SETTINGS
+// ------------------------------------
+
+const DOWNLOAD_STREAMS = 4;
+const UPLOAD_STREAMS = 4;
+
+const DOWNLOAD_SIZE_MB = 10;
+const UPLOAD_SIZE_MB = 2;
 
 const DOWNLOAD_URL = "/speed-test.bin";
 
-// 5 MB upload
-const UPLOAD_SIZE = 5 * 1024 * 1024;
 
-
-// ========================================
-// HELPERS
-// ========================================
+// ------------------------------------
+// UI
+// ------------------------------------
 
 function phase(text) {
   phaseEl.textContent = text;
@@ -34,30 +37,37 @@ function status(text) {
 }
 
 function showSpeed(value) {
-  if (!Number.isFinite(value)) {
-    speedEl.textContent = "0.0";
-    return;
-  }
+  if (!Number.isFinite(value)) return;
 
   speedEl.textContent = value.toFixed(1);
 }
 
+
+// ------------------------------------
+// SPEED CALCULATION
+// ------------------------------------
+
 function speedMbps(bytes, milliseconds) {
-  if (bytes <= 0 || milliseconds <= 0) {
+
+  if (
+    !Number.isFinite(bytes) ||
+    !Number.isFinite(milliseconds) ||
+    milliseconds <= 0
+  ) {
     return 0;
   }
 
   return (
-    (bytes * 8) /
+    bytes * 8 /
     (milliseconds / 1000) /
     1000000
   );
 }
 
 
-// ========================================
-// LATENCY / PING
-// ========================================
+// ------------------------------------
+// LATENCY + JITTER
+// ------------------------------------
 
 async function measureLatency(samples = 10) {
 
@@ -67,134 +77,93 @@ async function measureLatency(samples = 10) {
 
     const start = performance.now();
 
-    try {
-
-      const response = await fetch(
-        `/ping?t=${Date.now()}-${Math.random()}`,
-        {
-          method: "GET",
-          cache: "no-store"
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Ping failed");
+    const response = await fetch(
+      `/ping?t=${Date.now()}-${Math.random()}`,
+      {
+        method: "GET",
+        cache: "no-store"
       }
+    );
 
-      await response.text();
-
-      const elapsed =
-        performance.now() - start;
-
-      times.push(elapsed);
-
-      status(
-        `Measuring latency... ${elapsed.toFixed(1)} ms`
-      );
-
-    } catch (error) {
-
-      console.error("Latency sample failed:", error);
+    if (!response.ok) {
+      throw new Error("Ping test failed");
     }
+
+    const elapsed = performance.now() - start;
+
+    times.push(elapsed);
+
+    status(
+      `Latency test ${i + 1}/${samples} • ${elapsed.toFixed(1)} ms`
+    );
   }
 
-  if (times.length < 3) {
-    throw new Error("Not enough latency samples");
-  }
-
-  const sorted = [...times].sort(
-    (a, b) => a - b
-  );
-
-  // Average latency
   const average =
     times.reduce(
       (sum, value) => sum + value,
       0
     ) / times.length;
 
-  // Median is useful as the ping figure
-  const middle =
-    Math.floor(sorted.length / 2);
 
-  const median =
-    sorted.length % 2 === 0
-      ? (sorted[middle - 1] + sorted[middle]) / 2
-      : sorted[middle];
+  // Jitter = average absolute difference
+  // between consecutive latency samples.
+
+  let jitterTotal = 0;
+
+  for (let i = 1; i < times.length; i++) {
+
+    jitterTotal += Math.abs(
+      times[i] - times[i - 1]
+    );
+  }
+
+  const jitter =
+    times.length > 1
+      ? jitterTotal / (times.length - 1)
+      : 0;
+
 
   return {
     average,
-    median,
+    jitter,
     samples: times
   };
 }
 
 
-// ========================================
-// JITTER
-// ========================================
+// ------------------------------------
+// DOWNLOAD STREAM
+// ------------------------------------
 
-function calculateJitter(times) {
+async function downloadStream(streamId, sizeMB, onProgress) {
 
-  if (times.length < 2) {
-    return 0;
-  }
-
-  let totalDifference = 0;
-
-  for (let i = 1; i < times.length; i++) {
-
-    totalDifference += Math.abs(
-      times[i] - times[i - 1]
-    );
-  }
-
-  return (
-    totalDifference /
-    (times.length - 1)
-  );
-}
+  const url =
+    `${DOWNLOAD_URL}?size=${sizeMB}` +
+    `&stream=${streamId}` +
+    `&t=${Date.now()}-${Math.random()}`;
 
 
-// ========================================
-// DOWNLOAD TEST
-// ========================================
+  const response = await fetch(url, {
+    cache: "no-store"
+  });
 
-async function measureDownload() {
-
-  phase("DOWNLOAD");
-
-  status(
-    "Connecting to FAIBALINK speed test server..."
-  );
-
-  const start = performance.now();
-
-  const response = await fetch(
-    `${DOWNLOAD_URL}?t=${Date.now()}-${Math.random()}`,
-    {
-      method: "GET",
-      cache: "no-store"
-    }
-  );
 
   if (!response.ok) {
-    throw new Error("Download test failed");
+    throw new Error("Download stream failed");
   }
 
+
   if (!response.body) {
-    throw new Error(
-      "Browser does not support streaming downloads"
-    );
+    throw new Error("Streaming is not supported");
   }
+
 
   const reader =
     response.body.getReader();
 
-  let totalBytes = 0;
 
-  let lastBytes = 0;
-  let lastTime = start;
+  let bytes = 0;
+
 
   while (true) {
 
@@ -203,48 +172,105 @@ async function measureDownload() {
       value
     } = await reader.read();
 
-    if (done) {
-      break;
-    }
 
-    totalBytes += value.byteLength;
+    if (done) break;
 
-    const now =
-      performance.now();
 
-    // Update gauge every 100 ms
-    if (now - lastTime >= 100) {
+    bytes += value.byteLength;
 
-      const intervalBytes =
-        totalBytes - lastBytes;
 
-      const intervalTime =
-        now - lastTime;
-
-      const currentSpeed =
-        speedMbps(
-          intervalBytes,
-          intervalTime
-        );
-
-      showSpeed(currentSpeed);
-
-      const elapsed =
-        now - start;
-
-      status(
-        `Downloading... ${currentSpeed.toFixed(1)} Mbps`
-      );
-
-      lastBytes = totalBytes;
-      lastTime = now;
-    }
+    onProgress(value.byteLength);
   }
 
-  // IMPORTANT:
-  // Final result uses the COMPLETE transfer.
+
+  return bytes;
+}
+
+
+// ------------------------------------
+// DOWNLOAD TEST
+// ------------------------------------
+
+async function measureDownload() {
+
+  phase("DOWNLOAD");
+
+  status(
+    "Starting download test..."
+  );
+
+
+  let totalBytes = 0;
+
+  const start =
+    performance.now();
+
+
+  let lastUpdate =
+    start;
+
+
+  const streams = [];
+
+
+  for (
+    let i = 0;
+    i < DOWNLOAD_STREAMS;
+    i++
+  ) {
+
+    streams.push(
+      downloadStream(
+        i,
+        DOWNLOAD_SIZE_MB,
+        bytes => {
+
+          totalBytes += bytes;
+
+
+          const now =
+            performance.now();
+
+
+          if (
+            now - lastUpdate >= 100
+          ) {
+
+            const elapsed =
+              now - start;
+
+
+            const currentSpeed =
+              speedMbps(
+                totalBytes,
+                elapsed
+              );
+
+
+            showSpeed(
+              currentSpeed
+            );
+
+
+            status(
+              `Downloading... ${currentSpeed.toFixed(1)} Mbps`
+            );
+
+
+            lastUpdate = now;
+          }
+        }
+      )
+    );
+  }
+
+
+  await Promise.all(streams);
+
+
   const elapsed =
     performance.now() - start;
+
 
   const finalSpeed =
     speedMbps(
@@ -252,232 +278,273 @@ async function measureDownload() {
       elapsed
     );
 
+
   showSpeed(finalSpeed);
+
 
   return finalSpeed;
 }
 
 
-// ========================================
-// UPLOAD TEST
-// ========================================
+// ------------------------------------
+// UPLOAD STREAM
+// ------------------------------------
 
-function measureUpload() {
+function uploadStream(
+  streamId,
+  sizeMB,
+  onProgress
+) {
 
   return new Promise(
     (resolve, reject) => {
 
-      phase("UPLOAD");
-
-      status(
-        "Preparing upload test..."
-      );
-
-      // Generate random-looking data so
-      // compression cannot make the test artificial.
-      const data =
-        new Uint8Array(UPLOAD_SIZE);
-
-      if (window.crypto?.getRandomValues) {
-
-        const chunkSize = 65536;
-
-        for (
-          let offset = 0;
-          offset < data.length;
-          offset += chunkSize
-        ) {
-
-          const end =
-            Math.min(
-              offset + chunkSize,
-              data.length
-            );
-
-          window.crypto.getRandomValues(
-            data.subarray(offset, end)
-          );
-        }
-
-      } else {
-
-        for (
-          let i = 0;
-          i < data.length;
-          i++
-        ) {
-          data[i] =
-            Math.floor(Math.random() * 256);
-        }
-      }
-
-
       const xhr =
         new XMLHttpRequest();
 
-      const start =
-        performance.now();
+
+      const size =
+        Math.floor(
+          sizeMB *
+          1024 *
+          1024
+        );
+
+
+      const data =
+        new Uint8Array(size);
 
 
       xhr.open(
         "POST",
-        `/upload?t=${Date.now()}-${Math.random()}`,
+        `/upload?stream=${streamId}&t=${Date.now()}-${Math.random()}`,
         true
       );
+
 
       xhr.setRequestHeader(
         "Content-Type",
         "application/octet-stream"
       );
 
-      xhr.setRequestHeader(
-        "Cache-Control",
-        "no-cache"
-      );
-
-
-      // --------------------------------
-      // REAL UPLOAD PROGRESS
-      // --------------------------------
 
       xhr.upload.onprogress =
-        function (event) {
+        event => {
 
           if (!event.lengthComputable) {
             return;
           }
 
-          const now =
-            performance.now();
 
-          const elapsed =
-            now - start;
-
-          if (elapsed <= 0) {
-            return;
-          }
-
-          const bytesSent =
-            event.loaded;
-
-          const currentSpeed =
-            speedMbps(
-              bytesSent,
-              elapsed
-            );
-
-          showSpeed(currentSpeed);
-
-          const percent =
-            (event.loaded /
-              event.total) *
-            100;
-
-          status(
-            `Uploading... ${percent.toFixed(0)}% • ${currentSpeed.toFixed(1)} Mbps`
+          onProgress(
+            event.loaded
           );
         };
 
 
-      // --------------------------------
-      // UPLOAD COMPLETE
-      // --------------------------------
+      xhr.onload = () => {
 
-      xhr.onload =
-        function () {
+        if (
+          xhr.status >= 200 &&
+          xhr.status < 300
+        ) {
 
-          if (
-            xhr.status < 200 ||
-            xhr.status >= 300
-          ) {
+          resolve(
+            size
+          );
 
-            reject(
-              new Error(
-                `Upload failed: HTTP ${xhr.status}`
-              )
-            );
-
-            return;
-          }
-
-          const elapsed =
-            performance.now() - start;
-
-          // Final upload speed is based on
-          // the COMPLETE payload.
-          const finalSpeed =
-            speedMbps(
-              data.byteLength,
-              elapsed
-            );
-
-          showSpeed(finalSpeed);
-
-          resolve(finalSpeed);
-        };
-
-
-      xhr.onerror =
-        function () {
+        } else {
 
           reject(
             new Error(
-              "Network error during upload"
+              "Upload stream failed"
             )
           );
-        };
+        }
+      };
 
 
-      xhr.ontimeout =
-        function () {
+      xhr.onerror = () => {
 
-          reject(
-            new Error(
-              "Upload timed out"
-            )
-          );
-        };
-
-
-      xhr.timeout = 30000;
+        reject(
+          new Error(
+            "Upload connection failed"
+          )
+        );
+      };
 
 
-      // Start actual upload
       xhr.send(data);
     }
   );
 }
 
 
-// ========================================
-// MAIN SPEED TEST
-// ========================================
+// ------------------------------------
+// UPLOAD TEST
+// ------------------------------------
+
+async function measureUpload() {
+
+  phase("UPLOAD");
+
+  status(
+    "Starting upload test..."
+  );
+
+
+  const start =
+    performance.now();
+
+
+  let totalBytes = 0;
+
+  let lastReportedBytes = 0;
+
+  let lastUpdate =
+    start;
+
+
+  const streams = [];
+
+
+  for (
+    let i = 0;
+    i < UPLOAD_STREAMS;
+    i++
+  ) {
+
+    streams.push(
+      uploadStream(
+        i,
+        UPLOAD_SIZE_MB,
+        loaded => {
+
+          const difference =
+            loaded -
+            lastReportedBytes;
+
+
+          if (difference > 0) {
+
+            totalBytes +=
+              difference;
+
+
+            lastReportedBytes =
+              loaded;
+          }
+
+
+          const now =
+            performance.now();
+
+
+          if (
+            now - lastUpdate >= 100
+          ) {
+
+            const elapsed =
+              now - start;
+
+
+            const currentSpeed =
+              speedMbps(
+                totalBytes,
+                elapsed
+              );
+
+
+            showSpeed(
+              currentSpeed
+            );
+
+
+            status(
+              `Uploading... ${currentSpeed.toFixed(1)} Mbps`
+            );
+
+
+            lastUpdate =
+              now;
+          }
+        }
+      )
+    );
+  }
+
+
+  await Promise.all(streams);
+
+
+  const elapsed =
+    performance.now() - start;
+
+
+  const expectedBytes =
+    UPLOAD_STREAMS *
+    UPLOAD_SIZE_MB *
+    1024 *
+    1024;
+
+
+  const finalSpeed =
+    speedMbps(
+      expectedBytes,
+      elapsed
+    );
+
+
+  showSpeed(
+    finalSpeed
+  );
+
+
+  return finalSpeed;
+}
+
+
+// ------------------------------------
+// MAIN TEST
+// ------------------------------------
 
 async function runTest() {
 
   startBtn.disabled = true;
 
-  // Reset results
-  showSpeed(0);
 
-  downloadEl.textContent = "—";
-  uploadEl.textContent = "—";
-  pingEl.textContent = "—";
-  latencyEl.textContent = "—";
-  jitterEl.textContent = "—";
+  speedEl.textContent =
+    "0.0";
+
+
+  downloadEl.textContent =
+    "—";
+
+  uploadEl.textContent =
+    "—";
+
+  pingEl.textContent =
+    "—";
+
+  latencyEl.textContent =
+    "—";
+
+  jitterEl.textContent =
+    "—";
 
 
   try {
 
-    // ====================================
-    // PING / LATENCY / JITTER
-    // ====================================
+    // ================================
+    // LATENCY
+    // ================================
 
     phase("PING");
 
     status(
-      "Measuring latency..."
+      "Finding network response time..."
     );
+
 
     const latencyResult =
       await measureLatency(10);
@@ -486,66 +553,68 @@ async function runTest() {
     const latency =
       latencyResult.average;
 
-    const ping =
-      latencyResult.median;
 
     const jitter =
-      calculateJitter(
-        latencyResult.samples
-      );
+      latencyResult.jitter;
 
 
     pingEl.textContent =
-      Math.round(ping);
+      Math.round(latency);
+
 
     latencyEl.textContent =
       latency.toFixed(1);
+
 
     jitterEl.textContent =
       jitter.toFixed(1);
 
 
-    // ====================================
+    // ================================
     // DOWNLOAD
-    // ====================================
+    // ================================
 
     const download =
       await measureDownload();
 
+
     downloadEl.textContent =
       download.toFixed(1);
 
-    showSpeed(download);
 
-
-    // ====================================
+    // ================================
     // UPLOAD
-    // ====================================
+    // ================================
 
     const upload =
       await measureUpload();
 
+
     uploadEl.textContent =
       upload.toFixed(1);
 
-    showSpeed(upload);
 
-
-    // ====================================
+    // ================================
     // COMPLETE
-    // ====================================
+    // ================================
 
     phase("COMPLETE");
 
+
     status(
-      `Test complete • ${download.toFixed(1)} Mbps down • ${upload.toFixed(1)} Mbps up`
+      `Test complete • ` +
+      `${latency.toFixed(1)} ms latency • ` +
+      `${jitter.toFixed(1)} ms jitter`
     );
+
 
   } catch (error) {
 
     console.error(error);
 
+
     phase("ERROR");
+
 
     status(
       "Test failed. Please try again."
@@ -556,10 +625,6 @@ async function runTest() {
   startBtn.disabled = false;
 }
 
-
-// ========================================
-// START
-// ========================================
 
 startBtn.addEventListener(
   "click",
