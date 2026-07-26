@@ -5,16 +5,10 @@ const app = express();
 
 const PORT = process.env.PORT || 10000;
 
-// Allow large upload requests
-app.use(express.raw({
-  type: "*/*",
-  limit: "20mb"
-}));
-
-// Serve website
+// Serve website files
 app.use(express.static(path.join(__dirname, "public")));
 
-// Fast ping endpoint
+// Ping endpoint
 app.get("/ping", (req, res) => {
   res.set({
     "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -25,20 +19,27 @@ app.get("/ping", (req, res) => {
   res.status(200).send("OK");
 });
 
-// Upload test endpoint
-app.post("/upload", (req, res) => {
-  res.set({
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0"
-  });
+// Upload endpoint
+app.post(
+  "/upload",
+  express.raw({
+    type: "application/octet-stream",
+    limit: "5mb"
+  }),
+  (req, res) => {
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
 
-  res.status(200).send("OK");
-});
+    res.status(200).send("OK");
+  }
+);
 
-// Generate download data
+// Download test
 app.get("/speed-test.bin", (req, res) => {
-  const size = 5 * 1024 * 1024; // 5 MB
+  const size = 5 * 1024 * 1024;
 
   res.set({
     "Content-Type": "application/octet-stream",
@@ -49,15 +50,14 @@ app.get("/speed-test.bin", (req, res) => {
   });
 
   const chunk = Buffer.alloc(64 * 1024);
-
   let remaining = size;
 
   function sendChunk() {
     while (remaining > 0) {
-      const currentSize = Math.min(chunk.length, remaining);
-      remaining -= currentSize;
+      const amount = Math.min(chunk.length, remaining);
+      remaining -= amount;
 
-      if (!res.write(chunk.subarray(0, currentSize))) {
+      if (!res.write(chunk.subarray(0, amount))) {
         res.once("drain", sendChunk);
         return;
       }
@@ -69,7 +69,6 @@ app.get("/speed-test.bin", (req, res) => {
   sendChunk();
 });
 
-// Start server
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`FAIBALINK Speed Test running on port ${PORT}`);
 });
