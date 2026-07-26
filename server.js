@@ -1,115 +1,102 @@
-const http = require("http");
-const fs = require("fs");
+const express = require("express");
 const path = require("path");
 
-const PORT = process.env.PORT || 8080;
-const publicDir = path.join(__dirname, "public");
+const app = express();
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+const PORT = process.env.PORT || 10000;
 
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Access-Control-Allow-Origin", "*");
+// Allow large upload requests
+app.use(express.raw({
+  type: "*/*",
+  limit: "100mb"
+}));
 
-  // Ping test
-  if (url.pathname === "/ping") {
-    res.writeHead(204);
-    return res.end();
-  }
+// Serve website files
+app.use(express.static(path.join(__dirname, "public")));
 
-  // Download test
-  if (url.pathname === "/download") {
-    const bytes = Math.min(
-      Number(url.searchParams.get("bytes")) || 12 * 1024 * 1024,
-      100 * 1024 * 1024
-    );
+// -------------------------
+// PING
+// -------------------------
 
-    res.writeHead(200, {
-      "Content-Type": "application/octet-stream",
-      "Content-Length": bytes
-    });
-
-    const chunk = Buffer.alloc(64 * 1024);
-    let sent = 0;
-
-    function send() {
-      while (sent < bytes) {
-        const remaining = bytes - sent;
-
-        const piece =
-          remaining >= chunk.length
-            ? chunk
-            : chunk.subarray(0, remaining);
-
-        sent += piece.length;
-
-        if (!res.write(piece)) {
-          return res.once("drain", send);
-        }
-      }
-
-      res.end();
-    }
-
-    return send();
-  }
-
-  // Upload test
-  if (url.pathname === "/upload" && req.method === "POST") {
-    let received = 0;
-
-    req.on("data", chunk => {
-      received += chunk.length;
-    });
-
-    req.on("end", () => {
-      res.writeHead(200, {
-        "Content-Type": "application/json"
-      });
-
-      res.end(JSON.stringify({ received }));
-    });
-
-    return;
-  }
-
-  // Website files
-  let file = url.pathname === "/" ? "/index.html" : url.pathname;
-
-  const filePath = path.normalize(
-    path.join(publicDir, file)
-  );
-
-  if (!filePath.startsWith(publicDir)) {
-    res.writeHead(403);
-    return res.end("Forbidden");
-  }
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      return res.end("Not found");
-    }
-
-    const ext = path.extname(filePath);
-
-    const types = {
-      ".html": "text/html",
-      ".css": "text/css",
-      ".js": "application/javascript"
-    };
-
-    res.writeHead(200, {
-      "Content-Type":
-        types[ext] || "application/octet-stream"
-    });
-
-    res.end(data);
+app.get("/api/ping", (req, res) => {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache"
   });
+
+  res.status(204).end();
 });
 
-server.listen(PORT, () => {
-  console.log(
-    `FAIBALINK Speed Test running on port ${PORT}`
-  );
+// -------------------------
+// DOWNLOAD
+// -------------------------
+
+app.get("/api/download", (req, res) => {
+
+  const requestedSize = parseInt(req.query.size, 10) || 25000000;
+
+  // Protect server from unnecessarily huge requests
+  const size = Math.min(requestedSize, 50000000);
+
+  const chunkSize = 1024 * 1024;
+
+  res.set({
+    "Content-Type": "application/octet-stream",
+    "Content-Length": size,
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "X-Content-Type-Options": "nosniff"
+  });
+
+  const chunk = Buffer.alloc(chunkSize);
+
+  let sent = 0;
+
+  function sendChunk() {
+
+    while (sent < size) {
+
+      const remaining = size - sent;
+      const currentSize = Math.min(chunkSize, remaining);
+
+      const ok = res.write(
+        currentSize === chunkSize
+          ? chunk
+          : chunk.subarray(0, currentSize)
+      );
+
+      sent += currentSize;
+
+      if (!ok) {
+        res.once("drain", sendChunk);
+        return;
+      }
+    }
+
+    res.end();
+  }
+
+  sendChunk();
+});
+
+// -------------------------
+// UPLOAD
+// -------------------------
+
+app.post("/api/upload", (req, res) => {
+
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache"
+  });
+
+  res.status(204).end();
+});
+
+// -------------------------
+// START SERVER
+// -------------------------
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`FAIBALINK Speed Test running on port ${PORT}`);
 });
