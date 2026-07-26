@@ -5,59 +5,101 @@ const app = express();
 
 const PORT = process.env.PORT || 10000;
 
-// Serve website files
+// ------------------------------------
+// WEBSITE
+// ------------------------------------
+
 app.use(express.static(path.join(__dirname, "public")));
 
-// Ping endpoint
-app.get("/ping", (req, res) => {
-  res.set({
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0"
-  });
 
+// ------------------------------------
+// NO-CACHE HEADERS
+// ------------------------------------
+
+function noCache(res) {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Surrogate-Control": "no-store"
+  });
+}
+
+
+// ------------------------------------
+// PING / LATENCY
+// ------------------------------------
+
+app.get("/ping", (req, res) => {
+  noCache(res);
+
+  res.set("Content-Type", "text/plain");
   res.status(200).send("OK");
 });
 
-// Upload endpoint
+
+// ------------------------------------
+// UPLOAD TEST
+// ------------------------------------
+
 app.post(
   "/upload",
   express.raw({
-    type: "application/octet-stream",
-    limit: "5mb"
+    type: "*/*",
+    limit: "20mb"
   }),
   (req, res) => {
+    noCache(res);
+
     res.set({
-      "Cache-Control": "no-store, no-cache, must-revalidate",
-      "Pragma": "no-cache",
-      "Expires": "0"
+      "Content-Type": "text/plain",
+      "Content-Length": "2"
     });
 
     res.status(200).send("OK");
   }
 );
 
-// Download test
+
+// ------------------------------------
+// DOWNLOAD TEST
+// ------------------------------------
+
+// 10 MB test file
+const DOWNLOAD_SIZE = 10 * 1024 * 1024;
+
+// Reusable 64 KB chunk
+const chunk = Buffer.alloc(64 * 1024);
+
 app.get("/speed-test.bin", (req, res) => {
-  const size = 5 * 1024 * 1024;
+
+  noCache(res);
 
   res.set({
     "Content-Type": "application/octet-stream",
-    "Content-Length": size,
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0"
+    "Content-Length": DOWNLOAD_SIZE,
+    "Content-Encoding": "identity",
+    "X-Content-Type-Options": "nosniff"
   });
 
-  const chunk = Buffer.alloc(64 * 1024);
-  let remaining = size;
+  let remaining = DOWNLOAD_SIZE;
 
   function sendChunk() {
+
     while (remaining > 0) {
-      const amount = Math.min(chunk.length, remaining);
+
+      const amount = Math.min(
+        chunk.length,
+        remaining
+      );
+
       remaining -= amount;
 
-      if (!res.write(chunk.subarray(0, amount))) {
+      const canContinue = res.write(
+        chunk.subarray(0, amount)
+      );
+
+      if (!canContinue) {
         res.once("drain", sendChunk);
         return;
       }
@@ -69,6 +111,13 @@ app.get("/speed-test.bin", (req, res) => {
   sendChunk();
 });
 
+
+// ------------------------------------
+// START SERVER
+// ------------------------------------
+
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`FAIBALINK Speed Test running on port ${PORT}`);
+  console.log(
+    `FAIBALINK Speed Test running on port ${PORT}`
+  );
 });
